@@ -22,13 +22,17 @@ export interface CreateResearchMessageData {
  * Interface defining operations for the Research Message Repository.
  */
 export interface IResearchMessageRepository {
-  createMessage(data: CreateResearchMessageData): Promise<ResearchMessage>;
-  findById(id: string): Promise<ResearchMessage | null>;
+  createMessage(
+    data: CreateResearchMessageData,
+    session?: unknown,
+  ): Promise<ResearchMessage>;
+  findById(id: string, session?: unknown): Promise<ResearchMessage | null>;
   findBySessionId(
     sessionId: string,
     options?: PaginationOptions,
+    session?: unknown,
   ): Promise<ResearchMessage[]>;
-  getNextSequence(sessionId: string): Promise<number>;
-  countBySessionId(sessionId: string): Promise<number>;
-  deleteBySessionId(sessionId: string): Promise<number>;
+  getNextSequence(sessionId: string, session?: unknown): Promise<number>;
+  countBySessionId(sessionId: string, session?: unknown): Promise<number>;
+  deleteBySessionId(sessionId: string, session?: unknown): Promise<number>;
 }

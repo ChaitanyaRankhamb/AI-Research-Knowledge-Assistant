@@ -32,14 +32,21 @@ export interface PaginationOptions {
  * Abstracted to support Domain Driven Design and easy swapping or extending of storage layers.
  */
 export interface IResearchSessionRepository {
-  createSession(data: CreateResearchSessionData): Promise<ResearchSession>;
-  updateSession(session: ResearchSession): Promise<ResearchSession>;
-  findById(id: string): Promise<ResearchSession | null>;
+  createSession(
+    data: CreateResearchSessionData,
+    session?: unknown,
+  ): Promise<ResearchSession>;
+  updateSession(
+    session: ResearchSession,
+    dbSession?: unknown,
+  ): Promise<ResearchSession>;
+  findById(id: string, session?: unknown): Promise<ResearchSession | null>;
   findByUserId(
     userId: string,
     filter?: ResearchSessionFilter,
     pagination?: PaginationOptions,
+    session?: unknown,
   ): Promise<{ sessions: ResearchSession[]; total: number }>;
-  deleteSession(id: string): Promise<boolean>;
-  countByUserId(userId: string): Promise<number>;
+  deleteSession(id: string, session?: unknown): Promise<boolean>;
+  countByUserId(userId: string, session?: unknown): Promise<number>;
 }

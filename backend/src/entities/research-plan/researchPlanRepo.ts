@@ -25,14 +25,27 @@ export interface CreateResearchPlanVersionData {
  * Interface defining operations for the Research Plan Version Repository.
  */
 export interface IResearchPlanVersionRepository {
-  createPlanVersion(data: CreateResearchPlanVersionData): Promise<ResearchPlanVersion>;
-  updatePlanVersion(planVersion: ResearchPlanVersion): Promise<ResearchPlanVersion>;
-  findById(id: string): Promise<ResearchPlanVersion | null>;
+  createPlanVersion(
+    data: CreateResearchPlanVersionData,
+    session?: unknown,
+  ): Promise<ResearchPlanVersion>;
+  updatePlanVersion(
+    planVersion: ResearchPlanVersion,
+    session?: unknown,
+  ): Promise<ResearchPlanVersion>;
+  findById(id: string, session?: unknown): Promise<ResearchPlanVersion | null>;
   findBySessionIdAndVersion(
     sessionId: string,
     version: number,
+    session?: unknown,
   ): Promise<ResearchPlanVersion | null>;
-  findLatestBySessionId(sessionId: string): Promise<ResearchPlanVersion | null>;
-  findAllBySessionId(sessionId: string): Promise<ResearchPlanVersion[]>;
-  deleteBySessionId(sessionId: string): Promise<number>;
+  findLatestBySessionId(
+    sessionId: string,
+    session?: unknown,
+  ): Promise<ResearchPlanVersion | null>;
+  findAllBySessionId(
+    sessionId: string,
+    session?: unknown,
+  ): Promise<ResearchPlanVersion[]>;
+  deleteBySessionId(sessionId: string, session?: unknown): Promise<number>;
 }
