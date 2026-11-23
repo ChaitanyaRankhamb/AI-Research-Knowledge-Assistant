@@ -1,6 +1,7 @@
 import { researchMessageRepository } from "../../database/mongo/research-message/researchMessageModelRepo";
 import { researchPlanVersionRepository } from "../../database/mongo/research-plan/researchPlanVersionModelRepo";
 import { researchSessionRepository } from "../../database/mongo/research-session/researchSessionModelRepo";
+import { runInTransaction } from "../../database/mongo/transaction";
 import { AppError } from "../../Error/appError";
 
 class ResearchSessionService {
@@ -32,6 +33,8 @@ class ResearchSessionService {
 
   public async getSession(userId: string, sessionId: string) {
     const session = await this.getOwnedSession(userId, sessionId);
+    
+    // Fetch messages and plans concurrently
     const [messages, plans] = await Promise.all([
       researchMessageRepository.findBySessionId(sessionId),
       researchPlanVersionRepository.findAllBySessionId(sessionId),
@@ -98,13 +101,15 @@ class ResearchSessionService {
   public async deleteSession(userId: string, sessionId: string): Promise<void> {
     await this.getOwnedSession(userId, sessionId);
 
-    await researchMessageRepository.deleteBySessionId(sessionId);
-    await researchPlanVersionRepository.deleteBySessionId(sessionId);
+    await runInTransaction(async (dbSession) => {
+      await researchMessageRepository.deleteBySessionId(sessionId, dbSession);
+      await researchPlanVersionRepository.deleteBySessionId(sessionId, dbSession);
 
-    const deleted = await researchSessionRepository.deleteSession(sessionId);
-    if (!deleted) {
-      throw new AppError("Research session not found", 404);
-    }
+      const deleted = await researchSessionRepository.deleteSession(sessionId, dbSession);
+      if (!deleted) {
+        throw new AppError("Research session not found", 404);
+      }
+    });
   }
 
   private async getOwnedSession(userId: string, sessionId: string) {
