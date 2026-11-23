@@ -1,4 +1,4 @@
-import { Types } from "mongoose";
+import { ClientSession, Types } from "mongoose";
 import { ResearchMessage } from "../../../entities/research-message/researchMessage";
 import { ResearchMessageId } from "../../../entities/research-message/researchMessageId";
 import {
@@ -58,8 +58,10 @@ export class MongoResearchMessageRepository
    */
   async createMessage(
     data: CreateResearchMessageData,
+    session?: unknown,
   ): Promise<ResearchMessage> {
-    const doc = await ResearchMessageModel.create({
+    const clientSession = session as ClientSession | undefined;
+    const doc = new ResearchMessageModel({
       sessionId: new Types.ObjectId(data.sessionId),
       userId: new Types.ObjectId(data.userId),
       sequence: data.sequence,
@@ -81,16 +83,23 @@ export class MongoResearchMessageRepository
       metadata: data.metadata ?? undefined,
     });
 
+    await doc.save({ session: clientSession });
     return docToMessage(doc);
   }
 
   /**
    * Finds a single message by ID.
    */
-  async findById(id: string): Promise<ResearchMessage | null> {
+  async findById(
+    id: string,
+    session?: unknown,
+  ): Promise<ResearchMessage | null> {
     if (!Types.ObjectId.isValid(id)) return null;
 
-    const doc = await ResearchMessageModel.findById(id);
+    const clientSession = session as ClientSession | undefined;
+    const doc = await ResearchMessageModel.findById(id).session(
+      clientSession ?? null,
+    );
     return doc ? docToMessage(doc) : null;
   }
 
@@ -101,13 +110,17 @@ export class MongoResearchMessageRepository
   async findBySessionId(
     sessionId: string,
     options?: PaginationOptions,
+    session?: unknown,
   ): Promise<ResearchMessage[]> {
     if (!Types.ObjectId.isValid(sessionId)) return [];
 
+    const clientSession = session as ClientSession | undefined;
     const sortOrder = options?.sortOrder === "desc" ? -1 : 1;
     const query = ResearchMessageModel.find({
       sessionId: new Types.ObjectId(sessionId),
-    }).sort({ sequence: sortOrder });
+    })
+      .sort({ sequence: sortOrder })
+      .session(clientSession ?? null);
 
     if (options?.skip) {
       query.skip(options.skip);
@@ -125,14 +138,19 @@ export class MongoResearchMessageRepository
    * Calculates the next sequence number for a new message in a session.
    * Atomically prevents sequence collision.
    */
-  async getNextSequence(sessionId: string): Promise<number> {
+  async getNextSequence(
+    sessionId: string,
+    session?: unknown,
+  ): Promise<number> {
     if (!Types.ObjectId.isValid(sessionId)) return 1;
 
+    const clientSession = session as ClientSession | undefined;
     const lastMsg = await ResearchMessageModel.findOne({
       sessionId: new Types.ObjectId(sessionId),
     })
       .sort({ sequence: -1 })
       .select("sequence")
+      .session(clientSession ?? null)
       .lean();
 
     return lastMsg ? lastMsg.sequence + 1 : 1;
@@ -141,23 +159,35 @@ export class MongoResearchMessageRepository
   /**
    * Counts the number of messages in a session.
    */
-  async countBySessionId(sessionId: string): Promise<number> {
+  async countBySessionId(
+    sessionId: string,
+    session?: unknown,
+  ): Promise<number> {
     if (!Types.ObjectId.isValid(sessionId)) return 0;
 
-    return ResearchMessageModel.countDocuments({
-      sessionId: new Types.ObjectId(sessionId),
-    });
+    const clientSession = session as ClientSession | undefined;
+    return ResearchMessageModel.countDocuments(
+      { sessionId: new Types.ObjectId(sessionId) },
+      { session: clientSession },
+    );
   }
 
   /**
    * Deletes all messages in a session.
    */
-  async deleteBySessionId(sessionId: string): Promise<number> {
+  async deleteBySessionId(
+    sessionId: string,
+    session?: unknown,
+  ): Promise<number> {
     if (!Types.ObjectId.isValid(sessionId)) return 0;
 
-    const result = await ResearchMessageModel.deleteMany({
-      sessionId: new Types.ObjectId(sessionId),
-    });
+    const clientSession = session as ClientSession | undefined;
+    const result = await ResearchMessageModel.deleteMany(
+      {
+        sessionId: new Types.ObjectId(sessionId),
+      },
+      { session: clientSession },
+    );
 
     return result.deletedCount;
   }

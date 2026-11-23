@@ -1,4 +1,4 @@
-import { Types } from "mongoose";
+import { ClientSession, Types } from "mongoose";
 import { ResearchPlanVersion } from "../../../entities/research-plan/researchPlanVersion";
 import { ResearchPlanVersionId } from "../../../entities/research-plan/researchPlanVersionId";
 import {
@@ -52,8 +52,10 @@ export class MongoResearchPlanVersionRepository
    */
   async createPlanVersion(
     data: CreateResearchPlanVersionData,
+    session?: unknown,
   ): Promise<ResearchPlanVersion> {
-    const doc = await ResearchPlanVersionModel.create({
+    const clientSession = session as ClientSession | undefined;
+    const doc = new ResearchPlanVersionModel({
       sessionId: new Types.ObjectId(data.sessionId),
       version: data.version,
       basedOnVersion: data.basedOnVersion ?? null,
@@ -75,6 +77,7 @@ export class MongoResearchPlanVersionRepository
       approvedAt: data.approvedAt ?? null,
     });
 
+    await doc.save({ session: clientSession });
     return docToPlanVersion(doc);
   }
 
@@ -83,7 +86,9 @@ export class MongoResearchPlanVersionRepository
    */
   async updatePlanVersion(
     planVersion: ResearchPlanVersion,
+    session?: unknown,
   ): Promise<ResearchPlanVersion> {
+    const clientSession = session as ClientSession | undefined;
     const doc = await ResearchPlanVersionModel.findByIdAndUpdate(
       planVersion.id.toString(),
       {
@@ -103,7 +108,7 @@ export class MongoResearchPlanVersionRepository
           : null,
         approvedAt: planVersion.getApprovedAt() ?? null,
       },
-      { new: true },
+      { new: true, session: clientSession },
     );
 
     if (!doc) {
@@ -116,10 +121,16 @@ export class MongoResearchPlanVersionRepository
   /**
    * Finds a plan version by its unique database ID.
    */
-  async findById(id: string): Promise<ResearchPlanVersion | null> {
+  async findById(
+    id: string,
+    session?: unknown,
+  ): Promise<ResearchPlanVersion | null> {
     if (!Types.ObjectId.isValid(id)) return null;
 
-    const doc = await ResearchPlanVersionModel.findById(id);
+    const clientSession = session as ClientSession | undefined;
+    const doc = await ResearchPlanVersionModel.findById(id).session(
+      clientSession ?? null,
+    );
     return doc ? docToPlanVersion(doc) : null;
   }
 
@@ -129,13 +140,15 @@ export class MongoResearchPlanVersionRepository
   async findBySessionIdAndVersion(
     sessionId: string,
     version: number,
+    session?: unknown,
   ): Promise<ResearchPlanVersion | null> {
     if (!Types.ObjectId.isValid(sessionId)) return null;
 
+    const clientSession = session as ClientSession | undefined;
     const doc = await ResearchPlanVersionModel.findOne({
       sessionId: new Types.ObjectId(sessionId),
       version,
-    });
+    }).session(clientSession ?? null);
 
     return doc ? docToPlanVersion(doc) : null;
   }
@@ -145,12 +158,16 @@ export class MongoResearchPlanVersionRepository
    */
   async findLatestBySessionId(
     sessionId: string,
+    session?: unknown,
   ): Promise<ResearchPlanVersion | null> {
     if (!Types.ObjectId.isValid(sessionId)) return null;
 
+    const clientSession = session as ClientSession | undefined;
     const doc = await ResearchPlanVersionModel.findOne({
       sessionId: new Types.ObjectId(sessionId),
-    }).sort({ version: -1 });
+    })
+      .sort({ version: -1 })
+      .session(clientSession ?? null);
 
     return doc ? docToPlanVersion(doc) : null;
   }
@@ -160,12 +177,16 @@ export class MongoResearchPlanVersionRepository
    */
   async findAllBySessionId(
     sessionId: string,
+    session?: unknown,
   ): Promise<ResearchPlanVersion[]> {
     if (!Types.ObjectId.isValid(sessionId)) return [];
 
+    const clientSession = session as ClientSession | undefined;
     const docs = await ResearchPlanVersionModel.find({
       sessionId: new Types.ObjectId(sessionId),
-    }).sort({ version: 1 });
+    })
+      .sort({ version: 1 })
+      .session(clientSession ?? null);
 
     return docs.map(docToPlanVersion);
   }
@@ -173,12 +194,19 @@ export class MongoResearchPlanVersionRepository
   /**
    * Deletes all plan versions for a session (used during session cascade delete).
    */
-  async deleteBySessionId(sessionId: string): Promise<number> {
+  async deleteBySessionId(
+    sessionId: string,
+    session?: unknown,
+  ): Promise<number> {
     if (!Types.ObjectId.isValid(sessionId)) return 0;
 
-    const result = await ResearchPlanVersionModel.deleteMany({
-      sessionId: new Types.ObjectId(sessionId),
-    });
+    const clientSession = session as ClientSession | undefined;
+    const result = await ResearchPlanVersionModel.deleteMany(
+      {
+        sessionId: new Types.ObjectId(sessionId),
+      },
+      { session: clientSession },
+    );
 
     return result.deletedCount;
   }

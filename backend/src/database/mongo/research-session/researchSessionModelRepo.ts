@@ -1,4 +1,4 @@
-import { Types } from "mongoose";
+import { ClientSession, Types } from "mongoose";
 import { ResearchSession } from "../../../entities/research-session/researchSession";
 import { ResearchSessionId } from "../../../entities/research-session/researchSessionId";
 import {
@@ -48,8 +48,10 @@ export class MongoResearchSessionRepository
    */
   async createSession(
     data: CreateResearchSessionData,
+    session?: unknown,
   ): Promise<ResearchSession> {
-    const doc = await ResearchSessionModel.create({
+    const clientSession = session as ClientSession | undefined;
+    const doc = new ResearchSessionModel({
       userId: new Types.ObjectId(data.userId),
       title: data.title,
       generatedName: data.generatedName ?? null,
@@ -66,13 +68,18 @@ export class MongoResearchSessionRepository
       messageCount: data.messageCount ?? 0,
     });
 
+    await doc.save({ session: clientSession });
     return docToSession(doc);
   }
 
   /**
    * Persists changes to an existing Research Session domain entity.
    */
-  async updateSession(session: ResearchSession): Promise<ResearchSession> {
+  async updateSession(
+    session: ResearchSession,
+    dbSession?: unknown,
+  ): Promise<ResearchSession> {
+    const clientSession = dbSession as ClientSession | undefined;
     const doc = await ResearchSessionModel.findByIdAndUpdate(
       session.id.toString(),
       {
@@ -90,7 +97,7 @@ export class MongoResearchSessionRepository
         messageCount: session.getMessageCount(),
         completedAt: session.getCompletedAt() ?? null,
       },
-      { new: true },
+      { new: true, session: clientSession },
     );
 
     if (!doc) {
@@ -103,10 +110,16 @@ export class MongoResearchSessionRepository
   /**
    * Finds a research session by ID.
    */
-  async findById(id: string): Promise<ResearchSession | null> {
+  async findById(
+    id: string,
+    session?: unknown,
+  ): Promise<ResearchSession | null> {
     if (!Types.ObjectId.isValid(id)) return null;
 
-    const doc = await ResearchSessionModel.findById(id);
+    const clientSession = session as ClientSession | undefined;
+    const doc = await ResearchSessionModel.findById(id).session(
+      clientSession ?? null,
+    );
     return doc ? docToSession(doc) : null;
   }
 
@@ -118,7 +131,9 @@ export class MongoResearchSessionRepository
     userId: string,
     filter?: ResearchSessionFilter,
     pagination?: PaginationOptions,
+    session?: unknown,
   ): Promise<{ sessions: ResearchSession[]; total: number }> {
+    const clientSession = session as ClientSession | undefined;
     const query: Record<string, unknown> = {
       userId: new Types.ObjectId(userId),
     };
@@ -147,8 +162,9 @@ export class MongoResearchSessionRepository
       ResearchSessionModel.find(query)
         .sort({ updatedAt: sortOrder })
         .skip(skip)
-        .limit(limit),
-      ResearchSessionModel.countDocuments(query),
+        .limit(limit)
+        .session(clientSession ?? null),
+      ResearchSessionModel.countDocuments(query, { session: clientSession }),
     ]);
 
     return {
@@ -160,20 +176,25 @@ export class MongoResearchSessionRepository
   /**
    * Deletes a research session by ID.
    */
-  async deleteSession(id: string): Promise<boolean> {
+  async deleteSession(id: string, session?: unknown): Promise<boolean> {
     if (!Types.ObjectId.isValid(id)) return false;
 
-    const result = await ResearchSessionModel.findByIdAndDelete(id);
+    const clientSession = session as ClientSession | undefined;
+    const result = await ResearchSessionModel.findByIdAndDelete(id, {
+      session: clientSession,
+    });
     return Boolean(result);
   }
 
   /**
    * Counts the total number of sessions for a user.
    */
-  async countByUserId(userId: string): Promise<number> {
-    return ResearchSessionModel.countDocuments({
-      userId: new Types.ObjectId(userId),
-    });
+  async countByUserId(userId: string, session?: unknown): Promise<number> {
+    const clientSession = session as ClientSession | undefined;
+    return ResearchSessionModel.countDocuments(
+      { userId: new Types.ObjectId(userId) },
+      { session: clientSession },
+    );
   }
 }
 
