@@ -103,6 +103,21 @@ export class MongoResearchMessageRepository
     return doc ? docToMessage(doc) : null;
   }
 
+  async findAssistantResponseByExecutionId(
+    executionId: string,
+    session?: unknown,
+  ): Promise<ResearchMessage | null> {
+    const clientSession = session as ClientSession | undefined;
+    const doc = await ResearchMessageModel.findOne({
+      executionId,
+      role: "assistant",
+      planVersionId: null,
+    })
+      .session(clientSession ?? null)
+      .exec();
+    return doc ? docToMessage(doc) : null;
+  }
+
   /**
    * Retrieves messages for a session ordered sequentially.
    * Useful for loading chat history when opening a conversation.
