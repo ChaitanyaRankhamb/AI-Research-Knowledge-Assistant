@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { randomUUID } from "node:crypto";
 import { researchQueryService } from "./research-query.service";
 import { failureResponse, successResponse } from "../../utils/api-response";
 import { parseApiError } from "../../utils/api-error-handler";
@@ -29,6 +30,8 @@ const UserRequestSchema = z.object({
   ),
   query: z.string().optional(),
   sessionId: z.string().trim().min(1).optional(),
+  executionId: z.string().trim().min(1).optional(),
+  requestId: z.string().trim().min(1).optional(),
   pastedText: z.string().optional(),
   userPlanEdits: z.string().optional(),
   action: z.enum(["generate_plan", "edit_plan", "approve_plan"]).optional(),
@@ -64,6 +67,10 @@ class ResearchQueryController {
           : "generate_plan");
     const userPlanEditsValue =
       action === "edit_plan" ? cleanUserEdits : undefined;
+    const requestId = validatedData.requestId ?? randomUUID();
+    const executionId =
+      (action === "edit_plan" ? requestId : validatedData.executionId) ??
+      (action === "approve_plan" ? undefined : requestId);
 
     // call research query service to process request  
     try {
@@ -78,6 +85,8 @@ class ResearchQueryController {
           userPlanEdits: userPlanEditsValue,
           researchPlan: validatedData.researchPlan,
           sessionId: validatedData.sessionId,
+          executionId,
+          requestId,
         },
       );
       return successResponse(
@@ -117,6 +126,8 @@ class ResearchQueryController {
         details:
           parsed.details ||
           (error instanceof Error ? error.message : String(error)),
+        executionId,
+        requestId,
       });
     }
   }

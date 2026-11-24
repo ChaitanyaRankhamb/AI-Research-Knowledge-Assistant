@@ -119,6 +119,8 @@ const DocumentSchema = z.object({
 export const ResearchState = Annotation.Root({
   // Required for every request
   query: Annotation<string>(),
+  executionId: Annotation<string | undefined>(),
+  executionWorkerId: Annotation<string | undefined>(),
 
   // Optional uploaded document
   document: Annotation<z.infer<typeof DocumentSchema> | null>(),

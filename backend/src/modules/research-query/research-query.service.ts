@@ -1,4 +1,5 @@
 import { DocumentLoader } from "./langchain/document-loader";
+import { randomUUID } from "node:crypto";
 import type {
   ChatMessage,
   PlanApprovalStatus,
@@ -19,6 +20,7 @@ import { fileService } from "./minio/file.service";
 import { researchMessageRepository } from "../../database/mongo/research-message/researchMessageModelRepo";
 import { researchPlanVersionRepository } from "../../database/mongo/research-plan/researchPlanVersionModelRepo";
 import { researchSessionRepository } from "../../database/mongo/research-session/researchSessionModelRepo";
+import { researchExecutionRepository } from "../../database/mongo/research-execution/researchExecutionModelRepo";
 import { runInTransaction } from "../../database/mongo/transaction";
 import type { ResearchPlanVersion } from "../../entities/research-plan/researchPlanVersion";
 import type { ResearchSession } from "../../entities/research-session/researchSession";
@@ -31,6 +33,8 @@ export interface ProcessResearchQueryOptions {
   researchPlan?: ResearchPlanStep[];
   planApprovalStatus?: PlanApprovalStatus;
   sessionId?: string;
+  executionId?: string;
+  requestId?: string;
 }
 
 const researchConditions: ResearchConditionHandler[] = [
@@ -84,6 +88,7 @@ class ResearchQueryService {
     session: ResearchSession,
     objective: string,
     steps: ResearchPlanStep[],
+    executionId: string,
     changeSummary?: string,
   ): Promise<string> {
     if (steps.length === 0) {
@@ -126,6 +131,7 @@ class ResearchQueryService {
                 stepId: step.id,
                 title: step.title,
                 description: step.description ?? "",
+                dependsOn: step.dependsOn ?? [],
               })),
             },
             changeSummary: changeSummary || null,
@@ -147,6 +153,17 @@ class ResearchQueryService {
 
       session.setPendingPlan(planVersion.getId().toString(), version);
       const planVersionId = planVersion.getId().toString();
+      await researchExecutionRepository.setPlanVersion(
+        executionId,
+        planVersionId,
+        dbSession,
+      );
+      await researchExecutionRepository.setExecutionStatus(
+        executionId,
+        "pending",
+        null,
+        dbSession,
+      );
       await researchMessageRepository.createMessage(
         {
           sessionId,
@@ -157,6 +174,7 @@ class ResearchQueryService {
           ),
           role: "assistant",
           content: "I have prepared a research plan for your review.",
+          executionId,
           planVersionId,
         },
         dbSession,
@@ -177,6 +195,12 @@ class ResearchQueryService {
   ): Promise<void> {
     const pendingPlanId = session.getPendingPlanVersionId();
     if (!pendingPlanId) {
+      const activePlanVersionId = session.getActivePlanVersionId();
+      if (activePlanVersionId) {
+        const activePlan =
+          await researchPlanVersionRepository.findById(activePlanVersionId);
+        if (activePlan?.getStatus() === "approved") return;
+      }
       throw new AppError(
         "No pending research plan is available to approve.",
         409,
@@ -214,26 +238,41 @@ class ResearchQueryService {
     session: ResearchSession,
     userId: string,
     answer: string,
+    executionId: string,
   ): Promise<void> {
     const sessionId = session.getId().toString();
     await runInTransaction(async (dbSession) => {
-      await researchMessageRepository.createMessage(
-        {
-          sessionId,
-          userId,
-          sequence: await researchMessageRepository.getNextSequence(
+      const existingAnswer =
+        await researchMessageRepository.findAssistantResponseByExecutionId(
+          executionId,
+          dbSession,
+        );
+      if (!existingAnswer) {
+        await researchMessageRepository.createMessage(
+          {
             sessionId,
-            dbSession,
-          ),
-          role: "assistant",
-          content: answer,
-        },
-        dbSession,
-      );
+            userId,
+            sequence: await researchMessageRepository.getNextSequence(
+              sessionId,
+              dbSession,
+            ),
+            role: "assistant",
+            content: answer,
+            executionId,
+          },
+          dbSession,
+        );
 
-      session.incrementMessageCount();
+        session.incrementMessageCount();
+      }
       session.completeSession();
       await researchSessionRepository.updateSession(session, dbSession);
+      await researchExecutionRepository.setExecutionStatus(
+        executionId,
+        "completed",
+        null,
+        dbSession,
+      );
     });
   }
 
@@ -277,11 +316,14 @@ class ResearchQueryService {
       existingPlanLength: options?.researchPlan?.length || 0,
     });
 
+    const isPlanAction =
+      options?.action === "approve_plan" || options?.action === "edit_plan";
     if (
       !cleanQuery &&
       !document &&
       !cleanPastedText &&
-      !options?.researchPlan?.length
+      !options?.researchPlan?.length &&
+      !isPlanAction
     ) {
       console.log("Condition: Invalid request - No input provided.");
       throw new Error(
@@ -327,6 +369,7 @@ class ResearchQueryService {
               ),
               role: "user",
               content: userMessageContent,
+              executionId: options?.executionId,
             },
             dbSession,
           );
@@ -374,6 +417,7 @@ class ResearchQueryService {
               ),
               role: "user",
               content: userMessageContent,
+              executionId: options?.executionId,
             },
             dbSession,
           );
@@ -386,6 +430,45 @@ class ResearchQueryService {
         return newSession;
       });
     }
+
+    const isPlanEdit = options?.action === "edit_plan";
+    let execution =
+      options?.executionId && !isPlanEdit
+        ? await researchExecutionRepository.findByExecutionId(
+            options.executionId,
+          )
+        : null;
+
+    const approvalPlanVersionId =
+      session.getPendingPlanVersionId() ?? session.getActivePlanVersionId();
+    if (
+      !execution &&
+      options?.action === "approve_plan" &&
+      approvalPlanVersionId
+    ) {
+      execution = await researchExecutionRepository.findBySessionAndPlanVersion(
+        session.getId().toString(),
+        approvalPlanVersionId,
+      );
+    }
+
+    if (execution && execution.sessionId.toString() !== session.getId().toString()) {
+      throw new AppError("Research execution does not belong to this session.", 409);
+    }
+
+    if (!execution) {
+      const generatedExecutionId = options?.executionId ?? randomUUID();
+      const requestId =
+        options?.requestId ?? generatedExecutionId;
+      execution = await researchExecutionRepository.createOrFind({
+        executionId: generatedExecutionId,
+        requestId,
+        sessionId: session.getId().toString(),
+      });
+    }
+
+    const executionId = execution.executionId;
+    let executionResearchPlan = options?.researchPlan || [];
 
     // if the user uploads a document, store it to minio and get the file path
     if (document) {
@@ -406,6 +489,10 @@ class ResearchQueryService {
       )}`);
 
       if (!fileUploadResult.success) {
+        await researchExecutionRepository.setExecutionStatus(executionId, "failed", {
+          message: fileUploadResult.message,
+          occurredAt: new Date(),
+        });
         throw new Error(
           `Failed to upload document to MinIO: ${fileUploadResult.message}`,
         );
@@ -417,7 +504,51 @@ class ResearchQueryService {
       options?.planApprovalStatus === "approved"
     ) {
       await this.approvePendingPlan(session, userId);
+      const activePlanVersionId = session.getActivePlanVersionId();
+      if (!activePlanVersionId) {
+        throw new AppError("Approved research plan could not be loaded.", 409);
+      }
+      const activePlanVersion =
+        await researchPlanVersionRepository.findById(activePlanVersionId);
+      if (!activePlanVersion) {
+        throw new AppError("Approved research plan was not found.", 404);
+      }
+      if (execution.planVersionId?.toString() !== activePlanVersionId) {
+        await researchExecutionRepository.setPlanVersion(
+          executionId,
+          activePlanVersionId,
+        );
+      }
+      executionResearchPlan = activePlanVersion.getSteps().map((step) => ({
+        id: step.stepId,
+        title: step.title,
+        description: step.description,
+        dependsOn: step.dependsOn ?? [],
+        status: "pending",
+      }));
+    } else if (
+      options?.action === "edit_plan" &&
+      executionResearchPlan.length === 0 &&
+      session.getPendingPlanVersionId()
+    ) {
+      const pendingPlan = await researchPlanVersionRepository.findById(
+        session.getPendingPlanVersionId()!,
+      );
+      if (pendingPlan) {
+        executionResearchPlan = pendingPlan.getSteps().map((step) => ({
+          id: step.stepId,
+          title: step.title,
+          description: step.description,
+          dependsOn: step.dependsOn ?? [],
+          status: "pending",
+        }));
+      }
     }
+
+    await researchExecutionRepository.setExecutionStatus(
+      executionId,
+      planApprovalStatus === "approved" ? "processing" : "pending",
+    );
 
     const context: ResearchConditionContext = {
       query: cleanQuery,
@@ -427,7 +558,8 @@ class ResearchQueryService {
       conversationHistory,
       planApprovalStatus,
       userPlanEdits,
-      researchPlan: options?.researchPlan || [],
+      researchPlan: executionResearchPlan,
+      executionId,
       largeContentThresholdBytes:
         ResearchQueryService.LARGE_CONTENT_THRESHOLD_BYTES,
       formatResponse: async (
@@ -447,18 +579,35 @@ class ResearchQueryService {
               500,
             );
           }
-          await this.persistAssistantResponse(session, userId, answer);
+          await researchExecutionRepository.skipPendingEvents(executionId);
+          await this.persistAssistantResponse(
+            session,
+            userId,
+            answer,
+            executionId,
+          );
           planVersionId = session.getActivePlanVersionId() ?? undefined;
         } else {
-          const objective =
-            cleanQuery ||
-            cleanPastedText ||
-            session.getInitialQuery();
-          planVersionId = await this.persistPlanVersion(
-            session,
-            objective,
-            graphResult.researchPlan || [],
-            userPlanEdits,
+          const currentExecution =
+            await researchExecutionRepository.findByExecutionId(executionId);
+          if (currentExecution?.planVersionId) {
+            planVersionId = currentExecution.planVersionId.toString();
+          } else {
+            const objective =
+              cleanQuery ||
+              cleanPastedText ||
+              session.getInitialQuery();
+            planVersionId = await this.persistPlanVersion(
+              session,
+              objective,
+              graphResult.researchPlan || [],
+              executionId,
+              userPlanEdits,
+            );
+          }
+          await researchExecutionRepository.skipPendingEvent(
+            executionId,
+            approvalStatus === "edit_requested" ? "plannerNode" : "replanNode",
           );
         }
 
@@ -472,19 +621,46 @@ class ResearchQueryService {
           ),
           sessionId: session.getId().toString(),
           planVersionId,
+          executionId,
+          requestId: execution.requestId,
         };
       },
     };
 
-    for (const condition of researchConditions) {
-      const response = await condition(context);
-      if (response !== null) return response;
+    try {
+      for (const condition of researchConditions) {
+        const response = await condition(context);
+        if (response !== null) {
+          if (planApprovalStatus !== "approved") {
+            await researchExecutionRepository.setExecutionStatus(
+              executionId,
+              "pending",
+            );
+          }
+          return response;
+        }
+      }
+    } catch (error: unknown) {
+      if (!(error instanceof AppError && error.statusCode === 409)) {
+        await researchExecutionRepository.setExecutionStatus(
+          executionId,
+          "failed",
+          {
+            message: error instanceof Error ? error.message : String(error),
+            name: error instanceof Error ? error.name : undefined,
+            occurredAt: new Date(),
+          },
+        );
+      }
+      throw error;
     }
 
     return {
       message: "Request processed.",
       planApprovalStatus,
       sessionId: session.getId().toString(),
+      executionId,
+      requestId: execution.requestId,
     };
   }
 }
