@@ -4,6 +4,7 @@ import {
   SystemMessage,
   type BaseMessage,
 } from "@langchain/core/messages";
+import { randomUUID } from "node:crypto";
 import {
   type ResearchPlanStep,
   type ResearchStateType,
@@ -13,6 +14,12 @@ import {
 import { llmService, type LlmService } from "../../llm/llm.service";
 import { tavilySearchService } from "../../search/tavily-search.service";
 import { logWorkflowError, WorkflowError } from "../../../../utils/api-error-handler";
+import { researchExecutionRepository } from "../../../../database/mongo/research-execution/researchExecutionModelRepo";
+import {
+  restoreResearchPlanSteps,
+  toResearchExecutionError,
+} from "../../../../entities/research-execution/researchExecution";
+import { AppError } from "../../../../Error/appError";
 
 /**
  * Formats findings only from the prerequisite tasks that the current task depends on,
@@ -59,8 +66,17 @@ async function executeSingleTask(
   let webResults: SearchResultItem[] = [];
   try {
     webResults = await tavilySearchService.search(searchQuery, 3);
-  } catch (err) {
-    console.warn(`[Tavily] Search for "${searchQuery}" failed gracefully:`, err);
+  } catch (error: unknown) {
+    const formatted = logWorkflowError(`executeTask:${step.id}:Tavily`, error, {
+      stepId: step.id,
+      stepTitle: step.title,
+      searchQuery,
+    });
+    throw new WorkflowError({
+      ...formatted,
+      service: "Tavily",
+      message: `Tavily search failed: ${formatted.message}`,
+    });
   }
 
   // if webEvidence are return then pass them in web evidence
@@ -220,12 +236,25 @@ export async function executeConcurrentResearchStepsNode(
   state: ResearchStateType,
   llm: LlmService = llmService,
 ): Promise<Partial<ResearchStateType>> {
+  const executionId = state.executionId;
+  const workerId = state.executionWorkerId ?? randomUUID();
   let workingPlan: ResearchPlanStep[] = (state.researchPlan || []).map((s) => ({
     ...s,
     status: s.status || "pending",
   }));
 
   const allSearchResults: SearchResultItem[] = [...(state.searchResults || [])];
+
+  if (executionId) {
+    await researchExecutionRepository.ensureSteps(executionId, workingPlan);
+    const storedSteps = await researchExecutionRepository.getSteps(executionId);
+    workingPlan = restoreResearchPlanSteps(workingPlan, storedSteps);
+    allSearchResults.push(
+      ...storedSteps
+        .filter((step) => step.status === "completed")
+        .flatMap((step) => step.searchResults ?? []),
+    );
+  }
 
   console.log(
     `[LangGraph Node: executeConcurrentResearchStepsNode] Starting DAG execution for ${workingPlan.length} research task(s)...`,
@@ -272,29 +301,82 @@ export async function executeConcurrentResearchStepsNode(
     const settledResults = await executeTasksWithConcurrency(
       readySteps,
       2,
-      (step) => executeSingleTask(step, workingPlan, state, llm),
+      async (step) => {
+        if (!executionId) {
+          return executeSingleTask(step, workingPlan, state, llm);
+        }
+
+        const claimed = await researchExecutionRepository.claimStep(
+          executionId,
+          step.id,
+          workerId,
+        );
+        if (!claimed) {
+          const current = (await researchExecutionRepository.getSteps(executionId))
+            .find((stored) => stored.stepId === step.id);
+          if (current?.status === "completed" && current.result) {
+            return {
+              id: step.id,
+              result: current.result,
+              outputSnippet:
+                current.outputSnippet ?? current.result.slice(0, 400),
+              searchResults: current.searchResults ?? [],
+            };
+          }
+          throw new AppError(
+            `Research step "${step.id}" could not be claimed because another worker owns it.`,
+            409,
+          );
+        }
+
+        const heartbeat = setInterval(() => {
+          void researchExecutionRepository
+            .heartbeatStep(executionId, step.id, workerId)
+            .then((alive) => {
+              if (!alive) {
+                console.error(
+                  `[ResearchExecution] Lease for step "${step.id}" is no longer owned by this worker.`,
+                );
+              }
+            })
+            .catch((error: unknown) => {
+              console.error(
+                `[ResearchExecution] Failed to heartbeat step "${step.id}":`,
+                error,
+              );
+            });
+        }, 30_000);
+
+        try {
+          const result = await executeSingleTask(step, workingPlan, state, llm);
+          await researchExecutionRepository.completeStep(
+            executionId,
+            step.id,
+            workerId,
+            {
+              result: result.result,
+              outputSnippet: result.outputSnippet,
+              searchResults: result.searchResults,
+            },
+          );
+          return result;
+        } catch (error: unknown) {
+          await researchExecutionRepository.failStep(
+            executionId,
+            step.id,
+            workerId,
+            toResearchExecutionError(error),
+          );
+          throw error;
+        } finally {
+          clearInterval(heartbeat);
+        }
+      },
     );
 
-    const failures = settledResults.filter(
-      (r): r is PromiseRejectedResult => r.status === "rejected",
+    const waveResults = settledResults.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value] : [],
     );
-
-    if (failures.length > 0) {
-      const firstError = failures[0].reason;
-      logWorkflowError("executeConcurrentResearchStepsNode", firstError, {
-        waveIndex,
-        readyStepIds: readySteps.map((s) => s.id),
-        failedStepCount: failures.length,
-        totalSteps: workingPlan.length,
-      });
-      throw firstError;
-    }
-
-    const waveResults = (
-      settledResults as PromiseFulfilledResult<
-        Awaited<ReturnType<typeof executeSingleTask>>
-      >[]
-    ).map((r) => r.value);
 
     for (const res of waveResults) {
       if (res.searchResults && res.searchResults.length > 0) {
@@ -312,6 +394,20 @@ export async function executeConcurrentResearchStepsNode(
         outputSnippet: res.outputSnippet,
       })),
     );
+
+    const failures = settledResults.filter(
+      (r): r is PromiseRejectedResult => r.status === "rejected",
+    );
+    if (failures.length > 0) {
+      const firstError = failures[0].reason;
+      logWorkflowError("executeConcurrentResearchStepsNode", firstError, {
+        waveIndex,
+        readyStepIds: readySteps.map((s) => s.id),
+        failedStepCount: failures.length,
+        totalSteps: workingPlan.length,
+      });
+      throw firstError;
+    }
 
     waveIndex++;
   }
