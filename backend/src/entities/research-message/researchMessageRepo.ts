@@ -27,6 +27,10 @@ export interface IResearchMessageRepository {
     session?: unknown,
   ): Promise<ResearchMessage>;
   findById(id: string, session?: unknown): Promise<ResearchMessage | null>;
+  findAssistantResponseByExecutionId(
+    executionId: string,
+    session?: unknown,
+  ): Promise<ResearchMessage | null>;
   findBySessionId(
     sessionId: string,
     options?: PaginationOptions,

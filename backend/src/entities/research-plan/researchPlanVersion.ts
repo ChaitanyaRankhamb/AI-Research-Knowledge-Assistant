@@ -6,6 +6,7 @@ export interface IResearchPlanStep {
   stepId: string;
   title: string;
   description: string;
+  dependsOn?: string[];
 }
 
 export type PlanCreatedBy = "ai" | "user";
