@@ -1,5 +1,6 @@
 import { researchMessageRepository } from "../../database/mongo/research-message/researchMessageModelRepo";
 import { researchPlanVersionRepository } from "../../database/mongo/research-plan/researchPlanVersionModelRepo";
+import { researchExecutionRepository } from "../../database/mongo/research-execution/researchExecutionModelRepo";
 import { researchSessionRepository } from "../../database/mongo/research-session/researchSessionModelRepo";
 import { runInTransaction } from "../../database/mongo/transaction";
 import { AppError } from "../../Error/appError";
@@ -104,6 +105,7 @@ class ResearchSessionService {
     await runInTransaction(async (dbSession) => {
       await researchMessageRepository.deleteBySessionId(sessionId, dbSession);
       await researchPlanVersionRepository.deleteBySessionId(sessionId, dbSession);
+      await researchExecutionRepository.deleteBySessionId(sessionId, dbSession);
 
       const deleted = await researchSessionRepository.deleteSession(sessionId, dbSession);
       if (!deleted) {
