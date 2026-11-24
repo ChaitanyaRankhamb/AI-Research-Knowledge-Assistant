@@ -1,0 +1,78 @@
+services:
+  mongo1:
+    image: mongo:7.0
+    container_name: mongo1
+    restart: always
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo1_data:/data/db
+    networks:
+      - mongo-replica-net
+
+  mongo2:
+    image: mongo:7.0
+    container_name: mongo2
+    restart: always
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo2_data:/data/db
+    networks:
+      - mongo-replica-net
+
+  mongo3:
+    image: mongo:7.0
+    container_name: mongo3
+    restart: always
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    ports:
+      - "27019:27017"
+    volumes:
+      - mongo3_data:/data/db
+    networks:
+      - mongo-replica-net
+
+  # Sidecar container: Waits for all 3 nodes to be ready, then initializes the replica set
+  mongo-init:
+    image: mongo:7.0
+    container_name: mongo-init
+    depends_on:
+      - mongo1
+      - mongo2
+      - mongo3
+    networks:
+      - mongo-replica-net
+    restart: "no"
+    entrypoint: >
+      bash -c "
+        echo 'Waiting for mongo nodes to start...';
+        sleep 5;
+        mongosh --host mongo1:27017 --eval '
+          try {
+            rs.status();
+            console.log(\"Replica set rs0 already initialized\");
+          } catch (e) {
+            console.log(\"Initializing replica set rs0 with 3 nodes...\");
+            rs.initiate({
+              _id: \"rs0\",
+              members: [
+                { _id: 0, host: \"mongo1:27017\", priority: 2 },
+                { _id: 1, host: \"mongo2:27017\", priority: 1 },
+                { _id: 2, host: \"mongo3:27017\", priority: 1 }
+              ]
+            });
+          }
+        '
+      "
+
+networks:
+  mongo-replica-net:
+    driver: bridge
+
+volumes:
+  mongo1_data:
+  mongo2_data:
+  mongo3_data:
