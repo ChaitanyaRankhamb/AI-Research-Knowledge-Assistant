@@ -13,7 +13,8 @@ export interface WebSearchResult {
 /**
  * Service to perform live web searches using Tavily Search API.
  * Provides clean excerpts, titles, and URLs for grounding LLM synthesis.
- * Handles missing API key and network errors gracefully without disrupting workflow.
+ * Skips live search when no API key is configured and surfaces request failures
+ * so the current research step can be persisted as failed and retried.
  */
 export class TavilySearchService {
   private client: ReturnType<typeof tavily> | null = null;
@@ -92,7 +93,7 @@ export class TavilySearchService {
         `[TavilySearchService] Search error for query "${cleanQuery}":`,
         error instanceof Error ? error.message : error,
       );
-      return [];
+      throw error;
     }
   }
 }
