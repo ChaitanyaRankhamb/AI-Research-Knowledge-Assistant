@@ -254,16 +254,16 @@ export function ResearchSidebar({
             {filteredSessions.map((session) => (
               <div
                 key={session.id}
-                className={`group flex min-w-0 items-center gap-1 rounded-md px-1 text-xs ${
+                className={`group flex min-w-0 items-center gap-1 rounded-md px-1 text-xs cursor-pointer ${
                   session.id === activeChatId
                     ? "bg-sidebar-accent text-sidebar-foreground"
                     : "text-muted-foreground"
                 }`}
-                title={
-                  session.namingStatus === "failed"
-                    ? "Name generation failed; showing the session title."
-                    : session.displayName
-                }
+                // title={
+                //   session.namingStatus === "failed"
+                //     ? "Name generation failed; showing the session title."
+                //     : session.displayName
+                // }
               >
                 {editingSessionId === session.id ? (
                   <form onSubmit={saveRename} className="flex min-w-0 flex-1 items-center gap-1 py-1">
@@ -307,7 +307,7 @@ export function ResearchSidebar({
                     <button
                       type="button"
                       onClick={() => onSelectChat?.(session.id)}
-                      className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-2 text-left"
+                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1 py-2 text-left"
                       aria-current={session.id === activeChatId ? "page" : undefined}
                     >
                       {session.namingStatus === "naming" ? (
@@ -327,7 +327,7 @@ export function ResearchSidebar({
                             type="button"
                             variant="ghost"
                             size="icon-xs"
-                            className="shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                            className="shrink-0 cursor-pointer opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                             aria-label={`Actions for ${session.displayName}`}
                           >
                             <MoreHorizontal className="size-3.5" />
@@ -335,12 +335,16 @@ export function ResearchSidebar({
                         }
                       />
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => beginRename(session)}>
+                        <DropdownMenuItem
+                          className="cursor-pointer"
+                          onClick={() => beginRename(session)}
+                        >
                           <Pencil />
                           Rename
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           variant="destructive"
+                          className="cursor-pointer"
                           onClick={() =>
                             setSessionToDelete({
                               id: session.id,
