@@ -16,6 +16,7 @@ const handleSmallDocumentLargePastedText: ResearchConditionHandler =
     planApprovalStatus,
     userPlanEdits,
     researchPlan,
+    executionId,
     largeContentThresholdBytes,
     formatResponse,
   }) => {
@@ -70,6 +71,7 @@ const handleSmallDocumentLargePastedText: ResearchConditionHandler =
       planApprovalStatus,
       userPlanEdits,
       researchPlan,
+      executionId,
     });
 
     return formatResponse(

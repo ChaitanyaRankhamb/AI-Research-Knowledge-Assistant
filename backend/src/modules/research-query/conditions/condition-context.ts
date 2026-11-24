@@ -14,6 +14,7 @@ export interface ResearchConditionContext {
   planApprovalStatus: PlanApprovalStatus;
   userPlanEdits: string | undefined;
   researchPlan: ResearchPlanStep[];
+  executionId?: string;
   largeContentThresholdBytes: number;
   formatResponse: (
     mode: string,

@@ -9,6 +9,7 @@ const handleSmallDocument: ResearchConditionHandler = async ({
   planApprovalStatus,
   userPlanEdits,
   researchPlan,
+  executionId,
   largeContentThresholdBytes,
   formatResponse,
 }) => {
@@ -35,6 +36,7 @@ const handleSmallDocument: ResearchConditionHandler = async ({
     planApprovalStatus,
     userPlanEdits,
     researchPlan,
+    executionId,
   });
 
   return formatResponse(

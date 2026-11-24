@@ -15,6 +15,7 @@ const handleBothLarge: ResearchConditionHandler = async ({
   planApprovalStatus,
   userPlanEdits,
   researchPlan,
+  executionId,
   largeContentThresholdBytes,
   formatResponse,
 }) => {
@@ -65,6 +66,7 @@ const handleBothLarge: ResearchConditionHandler = async ({
     planApprovalStatus,
     userPlanEdits,
     researchPlan,
+    executionId,
   });
 
   return formatResponse(

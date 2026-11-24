@@ -14,6 +14,7 @@ const handleLargePastedText: ResearchConditionHandler = async ({
   planApprovalStatus,
   userPlanEdits,
   researchPlan,
+  executionId,
   largeContentThresholdBytes,
   formatResponse,
 }) => {
@@ -58,6 +59,7 @@ const handleLargePastedText: ResearchConditionHandler = async ({
     planApprovalStatus,
     userPlanEdits,
     researchPlan,
+    executionId,
   });
 
   return formatResponse(

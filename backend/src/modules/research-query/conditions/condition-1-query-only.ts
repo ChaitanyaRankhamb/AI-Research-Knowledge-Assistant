@@ -9,6 +9,7 @@ const handleQueryOnly: ResearchConditionHandler = async ({
   planApprovalStatus,
   userPlanEdits,
   researchPlan,
+  executionId,
   formatResponse,
 }) => {
   // only when user sends only query. no document and no text.
@@ -26,6 +27,7 @@ const handleQueryOnly: ResearchConditionHandler = async ({
     planApprovalStatus,
     userPlanEdits,
     researchPlan,
+    executionId,
   });
 
   return formatResponse(
