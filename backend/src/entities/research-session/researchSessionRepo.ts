@@ -1,5 +1,4 @@
 import { ResearchSession, ResearchStatus } from "./researchSession";
-import { ResearchSessionId } from "./researchSessionId";
 
 export interface CreateResearchSessionData {
   userId: string;
